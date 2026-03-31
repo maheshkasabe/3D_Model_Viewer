@@ -20,20 +20,29 @@ function extension(name: string): string {
   return parts.length > 1 ? parts[parts.length - 1].toUpperCase() : "UNKNOWN";
 }
 
-const SAMPLE_MODELS = [
+type SampleModel = {
+  label: string;
+  remoteUrl: string;
+  localUrl?: string;
+};
+
+const SAMPLE_MODELS: SampleModel[] = [
   {
     label: "ISS Stationary",
-    url: "https://bvildr-3dassets.s3.eu-north-1.amazonaws.com/ISS_stationary.glb",
+    remoteUrl: "https://bvildr-3dassets.s3.eu-north-1.amazonaws.com/ISS_stationary.glb",
+    localUrl: "/models/ISS_stationary.glb",
   },
   {
     label: "Damaged Helmet",
-    url: "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/DamagedHelmet/glTF-Binary/DamagedHelmet.glb",
+    remoteUrl:
+      "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/DamagedHelmet/glTF-Binary/DamagedHelmet.glb",
   },
   {
     label: "General Ship Repair",
-    url: "https://bvildr-3dassets.s3.eu-north-1.amazonaws.com/general_ship_repair.glb",
+    remoteUrl: "https://bvildr-3dassets.s3.eu-north-1.amazonaws.com/general_ship_repair.glb",
+    localUrl: "/models/general_ship_repair.glb",
   },
-] as const;
+];
 
 function fileNameFromUrl(url: string): string {
   try {
@@ -67,16 +76,32 @@ export default function Home() {
   } = useViewerStore();
   const [loadingSampleUrl, setLoadingSampleUrl] = useState<string | null>(null);
 
-  const loadSampleModel = async (url: string) => {
+  const fetchSampleBlob = async (url: string): Promise<Blob> => {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Sample download failed (${response.status}) from ${url}.`);
+    }
+    return response.blob();
+  };
+
+  const loadSampleModel = async (sample: SampleModel) => {
     try {
-      setLoadingSampleUrl(url);
+      setLoadingSampleUrl(sample.remoteUrl);
       setErrorMessage(null);
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Sample download failed (${response.status}).`);
+      let blob: Blob;
+      let sourceUrl = sample.remoteUrl;
+
+      try {
+        blob = await fetchSampleBlob(sample.remoteUrl);
+      } catch (remoteError) {
+        if (!sample.localUrl) {
+          throw remoteError;
+        }
+        blob = await fetchSampleBlob(sample.localUrl);
+        sourceUrl = sample.localUrl;
       }
-      const blob = await response.blob();
-      const name = fileNameFromUrl(url);
+
+      const name = fileNameFromUrl(sourceUrl);
       const file = new File([blob], name, {
         type: blob.type || "model/gltf-binary",
       });
@@ -88,7 +113,9 @@ export default function Home() {
       });
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "Failed to load sample model from URL.",
+        error instanceof Error
+          ? `${error.message} If this is Vercel, make sure the model exists in public/models or configure AWS CORS for your domain.`
+          : "Failed to load sample model.",
       );
     } finally {
       setLoadingSampleUrl(null);
@@ -203,15 +230,17 @@ export default function Home() {
             <div className="grid gap-2">
               {SAMPLE_MODELS.map((sample) => (
                 <button
-                  key={sample.url}
+                  key={sample.remoteUrl}
                   type="button"
                   className="rounded-md border border-zinc-700 px-3 py-1.5 text-left text-xs hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
                   onClick={() => {
-                    void loadSampleModel(sample.url);
+                    void loadSampleModel(sample);
                   }}
                   disabled={loadingSampleUrl !== null}
                 >
-                  {loadingSampleUrl === sample.url ? `Loading ${sample.label}...` : sample.label}
+                  {loadingSampleUrl === sample.remoteUrl
+                    ? `Loading ${sample.label}...`
+                    : sample.label}
                 </button>
               ))}
             </div>
